@@ -1,4 +1,3 @@
-
 # Breast Cancer Classification using Logistic Regression and Lasso
 
 ## Overview
@@ -36,7 +35,7 @@ This suggests that morphological complexity plays a larger role in malignancy cl
 ## Example Outputs
 
 ### ROC Curve
-*(Add image later if you want)*
+*(Add image later if desired)*
 
 ### Selected Features (Lasso)
 - concave_points_mean  
@@ -55,7 +54,11 @@ breast-cancer-classification/
 ├── breast_cancer_analysis.Rmd
 ├── breast_cancer_analysis.pdf
 ├── data/
-│   └── data.csv
+│ └── data.csv
+
+
+---
+
 ## How to Run
 1. Clone the repository  
 2. Open the `.Rmd` file in RStudio  
