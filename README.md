@@ -47,12 +47,13 @@ This suggests that morphological complexity plays a larger role in malignancy cl
 ---
 
 ## Project Structure
+```
 breast-cancer-classification/
 ├── breast_cancer_analysis.Rmd
 ├── breast_cancer_analysis.pdf
 ├── data/
-│ └── data.csv
-
+│   └── data.csv
+```
 
 ---
 
