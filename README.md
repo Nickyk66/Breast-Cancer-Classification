@@ -51,3 +51,22 @@ This suggests that morphological complexity plays a larger role in malignancy cl
 ---
 
 ## Project Structure
+breast-cancer-classification/
+├── breast_cancer_analysis.Rmd
+├── breast_cancer_analysis.pdf
+├── data/
+│   └── data.csv
+## How to Run
+1. Clone the repository  
+2. Open the `.Rmd` file in RStudio  
+3. Knit the document to reproduce results  
+
+---
+
+## Notes
+This dataset exhibits strong separation between benign and malignant tumors, which contributes to the high model performance. Results may not generalize as strongly to more complex real-world datasets.
+
+---
+
+## Author
+Nicholas Kaufman
