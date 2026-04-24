@@ -34,6 +34,9 @@ This suggests that morphological complexity plays a larger role in malignancy cl
 
 ## Example Outputs
 
+### ROC Curve
+![ROC Curve](images/roc_curve.png)
+
 ### Selected Features (Lasso)
 - concave_points_mean  
 - concave_points_worst  
