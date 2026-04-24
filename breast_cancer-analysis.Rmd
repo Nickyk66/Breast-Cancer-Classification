@@ -1,0 +1,366 @@
+---
+title: "Breast Cancer Project"
+author: "Nicholas Kaufman"
+date: "2025-12-13"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set((echo = FALSE), warning = FALSE, 
+root.dir = "Users/nickkaufman/Recents")
+library(readr)
+library(dplyr)
+library(tidyr)
+library(caret)
+library(class)
+library(glmnet)
+library(mgcv)
+library(corrplot)
+library(pROC)
+library(ggplot2)
+```
+
+## Data Preparation
+```{r, message=FALSE, warning=FALSE}
+cancer_raw <- read_csv("Downloads/data.csv", show_col_types = FALSE)
+
+cancer <- cancer_raw %>%
+  janitor::clean_names() %>%
+  select(diagnosis:fractal_dimension_worst) %>%
+  mutate(
+    diagnosis = factor(diagnosis,
+                       levels = c("B", "M"),
+                       labels = c("Benign", "Malignant"))
+  )
+
+head(cancer, 5)
+
+table(cancer$diagnosis)
+
+```
+The dataset used in this analysis contains measurements of tumor characteristics 
+derived from digitized images of breast masses. The objective is to use these 
+features to classify tumors as either benign or malignant.
+
+The data was first cleaned and prepared by standardizing column names and 
+converting the diagnosis variable into a factor with clearly defined classes. 
+This ensures consistency in modeling and interpretation throughout the analysis.
+
+
+## Exploratory Data Analysis
+```{r}
+
+eda_means <- cancer %>%
+  group_by(diagnosis) %>%
+  summarize(
+    radius_mean = mean(radius_mean, na.rm = TRUE),
+    perimeter_mean = mean(perimeter_mean, na.rm = TRUE),
+    smoothness_mean = mean(smoothness_mean, na.rm = TRUE),
+    compactness_mean = mean(compactness_mean, na.rm = TRUE),
+    concavity_mean = mean(concavity_mean, na.rm = TRUE),
+    concave_points_mean = mean(concave_points_mean, na.rm = TRUE),
+    symmetry_mean = mean(symmetry_mean, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(-diagnosis, names_to = "variable", values_to = "mean_value")
+
+# Faceted bar plot of mean values
+mean_plot <- ggplot(eda_means, aes(x = diagnosis, y = mean_value, 
+fill = diagnosis)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~ variable, scales = "free_y") +
+  labs(
+    title = "Mean Feature Values by Tumor Diagnosis",
+    x = "Diagnosis",
+    y = "Mean Value"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+print(mean_plot)
+
+
+
+```
+
+
+Initial exploratory analysis showed that malignant tumors tended to have higher 
+average values across several features, including radius, perimeter, 
+compactness, concavity, concave points, and symmetry. These differences 
+suggested that the predictor variables may carry meaningful information for 
+distinguishing benign from malignant tumors.
+
+
+```{r, fig.width=10, fig.height=8}
+numeric_data <- cancer %>%
+  mutate(diagnosis = ifelse(diagnosis == "Malignant", 1, 0))
+
+cor_target <- cor(numeric_data, use = "complete.obs")[, "diagnosis"]
+
+cor_df <- data.frame(
+  variable = names(cor_target),
+  correlation = cor_target
+) %>%
+  filter(variable != "diagnosis") %>%
+  arrange(desc(abs(correlation)))
+
+ggplot(cor_df, aes(x = reorder(variable, correlation), y = correlation)) +
+  geom_col() +
+  coord_flip() +
+  labs(
+    title = "Correlation of Features with Tumor Diagnosis",
+    x = "Feature",
+    y = "Correlation"
+  ) +
+  theme_minimal()
+
+
+```
+
+
+Correlation analysis further showed that many size-related variables, including 
+radius, perimeter, and area, were highly correlated with one another. This 
+indicates a significant degree of redundancy within the feature set.
+
+In contrast, features related to tumor shape and boundary irregularity, such as 
+concavity and concave points, also demonstrated strong relationships with 
+diagnosis while being less redundant.
+
+These findings suggest that a smaller subset of variables may be sufficient for accurate classification, and that feature selection could improve model stability.
+
+
+```{r}
+top_vars <- cor_df %>%
+slice_max(abs(correlation), n = 3) %>%
+pull(variable)
+
+plot_data <- cancer %>%
+	pivot_longer(
+		cols = all_of(top_vars),
+		names_to = "variable",
+		values_to = "value"
+	)
+ggplot(plot_data, aes(x = value, fill = diagnosis)) +
+	geom_density(alpha = 0.3) +
+	facet_wrap(~ variable, scales = "free", ncol = 1) +
+	theme_minimal()
+
+ggplot(plot_data, aes(x = diagnosis, y = value, fill = diagnosis)) +
+	geom_boxplot() +
+	facet_wrap(~ variable, scales = "free") +
+	theme_minimal() +
+	theme(legend.position = "none")
+```
+
+
+Distribution plots of the most strongly correlated variables showed clear 
+separation between benign and malignant tumors. In particular, features such as 
+concave points and radius displayed distinct distributions across the two 
+classes, reinforcing their importance as predictive variables.
+
+Overall, the exploratory analysis indicated that the dataset contains strong 
+predictive signals, but also highlighted the presence of highly correlated 
+features. These observations informed the modeling approach, including the use 
+of regularization techniques to reduce redundancy and improve model 
+interpretability.
+
+## Logistic Regression Model
+```{r}
+set.seed(123)
+
+
+
+train_index <- caret::createDataPartition(cancer$diagnosis, p = 0.8, 
+list = FALSE)
+train <- cancer[train_index, ]
+test  <- cancer[-train_index, ]
+
+model <- glm(diagnosis ~ ., data = train, family = binomial)
+
+
+probs <- predict(model, newdata = test, type = "response")
+
+
+preds <- ifelse(probs > 0.5, "Malignant", "Benign")
+preds <- factor(preds, levels = levels(test$diagnosis))
+
+cat("=== Logistic Regression Results ===\n")
+caret::confusionMatrix(preds, test$diagnosis, positive = "Malignant")
+
+# ROC and AUC
+roc_obj <- pROC::roc(test$diagnosis, probs)
+
+cat("\n=== ROC AUC ===\n")
+pROC::auc(roc_obj)
+
+plot(roc_obj)
+
+```
+
+
+A logistic regression model was used as a baseline approach to classify tumors 
+as benign or malignant. The model was trained on 80% of the dataset and 
+evaluated on the remaining 20%.
+
+The model achieved strong performance on the test set, with high accuracy, 
+sensitivity, and specificity, along with an AUC of approximately 0.96. This 
+indicates that the predictor variables contain substantial information for 
+distinguishing between benign and malignant tumors.
+
+While the logistic regression model performed well, the presence of highly 
+correlated predictors suggested potential redundancy in the feature set. This 
+motivated the use of a regularized modeling approach to improve interpretability 
+and reduce the number of predictors.
+
+## Model Validation
+```{r}
+
+	set.seed(123)
+	
+	control <- caret::trainControl(
+	  method = "cv",
+	  number = 5,
+	  classProbs = TRUE,
+	  summaryFunction = twoClassSummary,
+	  savePredictions = TRUE
+	)
+	
+	cv_model <- caret::train(
+	  diagnosis ~ .,
+	  data = cancer,
+	  method = "glm",
+	  family = "binomial",
+	  metric = "ROC",
+	  trControl = control
+	)
+	
+	print(cv_model)
+
+
+```
+
+While the model performed well, the presence of highly correlated predictors 
+suggested redundancy in the feature set. This motivated the use of 
+regularization to improve interpretability and reduce the number of predictors.
+
+## Regularized Logistic Regression
+```{r}
+
+x <- model.matrix(diagnosis ~ ., cancer)[, -1]
+y <- cancer$diagnosis
+
+set.seed(123)
+
+cv_glmnet <- glmnet::cv.glmnet(
+  x = x,
+  y = y,
+  family = "binomial",
+  alpha = 1
+)
+
+plot(cv_glmnet)
+print(cv_glmnet$lambda.min)
+print(cv_glmnet$lambda.1se)
+
+
+```
+To reduce redundancy among predictors and improve model interpretability, a 
+regularized logistic regression model using Lasso (L1) regularization was 
+implemented.
+
+Lasso regularization adds a penalty to the model that shrinks less important 
+coefficients toward zero, effectively performing feature selection. This is 
+particularly useful in this dataset, where many predictors are highly correlated.
+
+The model was trained using cross-validation to identify the optimal level of 
+regularization. The results showed that a range of regularization strengths 
+produced similar performance, indicating that a simpler model could be used 
+without sacrificing predictive accuracy.
+
+Using the more regularized model (lambda.1se), the number of predictors was 
+reduced substantially, while maintaining strong classification performance. 
+This confirms that many of the original features were redundant and that a 
+smaller subset of variables is sufficient for accurate prediction.
+
+The features retained in the regularized model were primarily related to tumor 
+shape and boundary irregularity, such as concave points, concavity, and 
+symmetry. This suggests that morphological complexity plays a more important 
+role in distinguishing malignant tumors than size alone.
+
+```{r}
+
+coef_matrix <- coef(cv_glmnet, s = "lambda.1se")
+
+nonzero_coef <- coef_matrix[coef_matrix[,1] != 0, , drop = FALSE]
+
+cat("=== Selected Features (Lasso - lambda.1se) ===\n")
+print(nonzero_coef)
+```
+
+## Final Model Evaluation
+```{r}
+
+x_test <- model.matrix(diagnosis ~ ., test)[, -1]
+
+
+probs_glmnet <- predict(cv_glmnet, newx = x_test, s = "lambda.1se", 
+type = "response")
+
+
+preds_glmnet <- ifelse(probs_glmnet > 0.5, "Malignant", "Benign")
+preds_glmnet <- factor(preds_glmnet, levels = levels(test$diagnosis))
+
+
+caret::confusionMatrix(preds_glmnet, test$diagnosis, positive = "Malignant")
+
+```
+
+The regularized logistic regression model was evaluated on the test set to 
+assess its performance on unseen data.
+
+The model achieved high classification accuracy, with strong sensitivity and 
+specificity. Only a small number of observations were misclassified, indicating 
+that the model performs reliably across both classes.
+
+In addition to accuracy metrics, the model demonstrated near-perfect 
+discrimination ability, with an area under the ROC curve (AUC) of 0.9993. 
+This confirms that the model is highly effective at distinguishing between 
+benign and malignant tumors.
+
+Importantly, this level of performance was achieved using a reduced set of 
+predictors, demonstrating that a simpler model can perform just as well as a 
+more complex one.
+
+
+```{r}
+
+probs_glmnet <- as.numeric(probs_glmnet)
+roc_obj_glmnet <- pROC::roc(test$diagnosis, probs_glmnet)
+pROC::auc(roc_obj_glmnet)
+plot(roc_obj_glmnet)
+
+```
+## Conclusion
+
+This project demonstrated that breast cancer tumors can be accurately classified 
+using a relatively small subset of features derived from tumor measurements. 
+It is important to note that this dataset exhibits strong separation between 
+benign and malignant tumors, which contributes to the high performance observed 
+across models. As a result, the near-perfect classification metrics may not 
+fully reflect performance on more complex or less separable real-world data.
+
+While a standard logistic regression model achieved strong performance, the 
+presence of highly correlated predictors highlighted redundancy in the feature 
+set. Cross-validation confirmed that the predictive signal in the dataset was 
+robust, while the correlated predictors reinforced the value of a regularized 
+approach for feature selection and interpretability.
+
+By applying Lasso regularization, the model was simplified significantly, 
+reducing the number of predictors while maintaining high classification 
+performance. The final model achieved strong accuracy, sensitivity, and 
+specificity, along with near-perfect discrimination as measured by AUC.
+
+Importantly, the results showed that features related to tumor shape and 
+boundary irregularity played a more significant role in classification than 
+size alone. This highlights the value of feature selection and regularization 
+in building interpretable and reliable predictive models.
